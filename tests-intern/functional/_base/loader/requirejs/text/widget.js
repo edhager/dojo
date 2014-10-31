@@ -1,5 +1,5 @@
-define("widget",
-	["subwidget", "text!widget.html"],
+define('widget',
+	['subwidget', 'text!widget.html'],
 	function (subwidget, template) {
 		return {
 			subWidgetName: subwidget.name,

@@ -1,30 +1,30 @@
 //Example layer file.
 
-define("alpha",
-	["beta", "gamma"],
+define('alpha',
+	['beta', 'gamma'],
 	function (beta, gamma) {
 		return {
-			name: "alpha",
+			name: 'alpha',
 			betaName: beta.name
 		};
 	}
 );
 
-define("beta",
-	["gamma"],
+define('beta',
+	['gamma'],
 	function (gamma) {
 		return {
-			name: "beta",
+			name: 'beta',
 			gammaName: gamma.name
 		};
 	}
 );
 
-define("gamma",
-	["epsilon"],
+define('gamma',
+	['epsilon'],
 	function (epsilon) {
 		return {
-			name: "gamma",
+			name: 'gamma',
 			epsilonName: epsilon.name
 		};
 	}

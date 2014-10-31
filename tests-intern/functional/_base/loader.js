@@ -3,21 +3,18 @@
 define([
 	'intern!object',
 	'intern/chai!assert',
-	'dojo/dom-construct',
 	'dojo/has',
 	'dojo/_base/lang',
-	'dojo/Deferred',
-	'dojo/promise/all',
-	'dojo/_base/url',
 	'require',
-	'intern/dojo/node!leadfoot/helpers/pollUntil'
-//	'dojo/has!dojo-amd-factory-scan?./loader/modules',
-//	'dojo/has!dojo-publish-privates?./loader/moduleIds'
-], function (registerSuite, assert, domConstruct, has, lang, Deferred, all, url, require, pollUntil) {
+	'intern/dojo/node!leadfoot/helpers/pollUntil',
+	'./loader/moduleIds'
+], function (registerSuite, assert, has, lang, require, pollUntil) {
+
+	var hasIE = has('ie');
 
 	function beginLoaderTest(url, testFn, readyFn) {
 		return testFn(this.get('remote')
-			.setExecuteAsyncTimeout(5000)
+			.setExecuteAsyncTimeout(10000)
 			.get(require.toUrl(url))
 			.then(pollUntil(readyFn || documentReady)));
 	}
@@ -26,9 +23,6 @@ define([
 		return document.readyState === 'complete' || null;
 	}
 
-	function readyVar() {
-		return window.ready || null;
-	}
 
 	// test equality of items from different contexts
 	function itemsAreEqual(item1, item2) {
@@ -67,17 +61,66 @@ define([
 		return true;
 	}
 
-	var suite = {
+	function createSyncAsyncTests(url, test, readyFn) {
+		return {
+			'sync': function () {
+				return beginLoaderTest.call(this, url, test, readyFn);
+			},
+			'async': function () {
+				var sep = url.indexOf('?') >= 0 ? '&' : '?';
+				return beginLoaderTest.call(this, url + sep + 'async', test, readyFn);
+			}
+		};
+	}
+
+	function badBaseTest(command) {
+		return command.executeAsync(function (callback) {
+			// set the base URL
+			require({ baseUrl: this.testBase + '/loader/requirejs/' });
+
+			require([ 'simple', 'dimple', 'func' ], function (simple, dimple, func) {
+				callback({
+					simple: simple.color,
+					dimple: dimple.color,
+					func: func()
+				});
+			});
+		}).then(function (data) {
+			assert.strictEqual(data.simple, 'blue');
+			assert.strictEqual(data.dimple, 'dimple-blue');
+			assert.strictEqual(data.func, 'You called a function');
+		}).executeAsync(function (callback) {
+			//This test is only in the HTML since it uses an URL for a require
+			//argument. It will not work well in say, the Rhino tests.
+			var path = location.href.replace(/simple-badbase\.html.*$/, 'foo');
+			var index = path.indexOf(':');
+			var noProtocolPath = path.substring(index + 1, path.length).replace(/foo/, 'bar');
+
+			require([ path, noProtocolPath ], function () {
+				callback({
+					foo: this.foo.name,
+					bar: this.bar.name
+				});
+			});
+		}).then(function (data) {
+			assert.strictEqual(data.foo, 'foo');
+			assert.strictEqual(data.bar, 'bar');
+		});
+	}
+
+	registerSuite({
 		name: 'dojo/_base/loader',
 
 		'async with Dojo require': function () {
 			return beginLoaderTest.call(this, './loader/asyncWithDojoRequire.html', function (command) {
 				return command.execute(function () {
-					return window.syncFromAsyncModule;
+					return this.syncFromAsyncModule;
 				}).then(function (value) {
 					assert.strictEqual(value, 'OK');
 				});
-			}, readyVar);
+			}, function () {
+				return this.ready || null;
+			});
 		},
 
 		'config': (function () {
@@ -87,7 +130,7 @@ define([
 						function (command) {
 							return command.executeAsync(function (configName, callback) {
 								require([ 'dojo', 'dojo/has'], function (dojo, has) {
-									var config = window[configName];
+									var config = this[configName];
 									var data = {
 										baseUrl: require.baseUrl,
 										config: config,
@@ -350,7 +393,7 @@ define([
 		},
 
 		'publish require result': (function () {
-			function createTest(publish) {
+			function createPublishTest(publish) {
 				return function () {
 					return beginLoaderTest.call(this, './loader/publishRequireResult.html' + (publish ? '' : '?do-not-publish'),
 						function (command) {
@@ -386,8 +429,8 @@ define([
 			}
 
 			return {
-				'publish': createTest(true),
-				'no publish': createTest()
+				'publish': createPublishTest(true),
+				'no publish': createPublishTest()
 			};
 		})(),
 
@@ -430,7 +473,7 @@ define([
 							'yourOtherModule/stuff/special'
 						], function (myModule, myModule1, myModule2, yourModule, yourOtherModule, special) {
 							// top level module via path
-							var myTopLevelModule = window.myTopLevelModule;
+							var myTopLevelModule = this.myTopLevelModule;
 							var results =
 								myModule1Value === myModule1 &&
 								myModule1Value === yourModule &&
@@ -447,8 +490,8 @@ define([
 				});
 		},
 
-		'xdomain': (function () {
-			function createTest(queryString) {
+		xdomain: (function () {
+			function createXDomainTest(queryString) {
 				return function () {
 					return beginLoaderTest.call(this, './loader/xdomain/xdomain.html' + (queryString || ''),
 						function (command) {
@@ -621,28 +664,17 @@ define([
 			}
 
 			return {
-				'sync 1': createTest('?variation=1'),
-				'sync 2': createTest('?variation=2'),
-				'async 1': createTest('?async=legacyAsync'),
-				'async 2': createTest('?async=legacyAsync&variation=2')
+				'sync 1': createXDomainTest('?variation=1'),
+				'sync 2': createXDomainTest('?variation=2'),
+				'async 1': createXDomainTest('?async=legacyAsync'),
+				'async 2': createXDomainTest('?async=legacyAsync&variation=2')
 			};
 		})(),
 
-		'requirejs': (function () {
-			function createSyncAsyncTests(url, test, readyFn) {
-				return {
-					'sync': function () {
-						return beginLoaderTest.call(this, url, test, readyFn);
-					},
-					'async': function () {
-						var sep = url.indexOf('?') >= 0 ? '&' : '?';
-						return beginLoaderTest.call(this, url + sep + 'async', test, readyFn);
-					}
-				};
-			}
+		requirejs: (function () {
 
 			var tests = {
-				'simple': createSyncAsyncTests.call(this, './loader/requirejs/simple.html', function (command) {
+				simple: createSyncAsyncTests.call(this, './loader/requirejs/simple.html', function (command) {
 					return command.executeAsync(function (callback) {
 						require({
 							baseUrl: './'
@@ -667,10 +699,6 @@ define([
 						var noProtocolPath = path.substring(index + 1, path.length).replace(/foo/, 'bar');
 						var self = this;
 
-						console.log('this.location.href = ' + this.location.href);
-						console.log('path = ' + path);
-						console.log('noProtocolPath = ' + noProtocolPath);
-
 						require([ path, noProtocolPath ], function () {
 							callback({
 								fooName: self.foo.name,
@@ -683,16 +711,16 @@ define([
 					});
 				}),
 
-				'config': createSyncAsyncTests.call(this, './loader/requirejs/config.html', function (command) {
+				config: createSyncAsyncTests.call(this, './loader/requirejs/config.html', function (command) {
 					return command.execute(function () {
-						return window.testData;
+						return this.testData;
 					}).then(function (data) {
 						assert.strictEqual(data.simpleColor, 'blue');
 						assert.strictEqual(data.dimpleColor, 'dimple-blue');
 						assert.strictEqual(data.funcOut, 'You called a function');
 					});
 				}, function () {
-					return window.testData;
+					return this.testData;
 				}),
 
 				'simple, no head': createSyncAsyncTests.call(this, './loader/requirejs/simple-nohead.html', function (command) {
@@ -711,7 +739,7 @@ define([
 					});
 				}),
 
-				'circular': function () {
+				circular: function () {
 					return beginLoaderTest.call(this, './loader/requirejs/circular.html?async',
 						function (command) {
 							return command.executeAsync(function (callback) {
@@ -793,6 +821,58 @@ define([
 					});
 				}),
 
+				dataMain: createSyncAsyncTests.call(this, './loader/requirejs/dataMain.html',
+					function (command) {
+						return command.execute(function () {
+							return this.simple.color;
+						}).then(function (data) {
+							assert.strictEqual(data, 'blue');
+						});
+					}
+				),
+
+				depoverlap: createSyncAsyncTests.call(this, './loader/requirejs/depoverlap.html',
+					function (command) {
+						return command.execute(function () {
+							//First confirm there is only one script tag for each module:
+							var scripts = this.document.getElementsByTagName('script');
+							var i;
+							var counts = {};
+							var modName;
+							var something;
+
+							for (i = scripts.length - 1; i > -1; i--) {
+								modName = scripts[i].getAttribute('data-requiremodule');
+								if (modName) {
+									if (!(modName in counts)) {
+										counts[modName] = 0;
+									}
+									counts[modName] += 1;
+								}
+							}
+
+							something = this.uno.doSomething();
+
+							return {
+								counts: counts,
+								unoName: this.uno.name,
+								dosName: something.dosName,
+								tresName: something.tresName
+							};
+						}).then(function (data) {
+							//Now that we counted all the modules make sure count
+							//is always one.
+							var counts = data.counts;
+							for (var prop in counts) {
+								assert.strictEqual(counts[prop], 1);
+							}
+
+							assert.strictEqual(data.unoName, 'uno');
+							assert.strictEqual(data.dosName, 'dos');
+							assert.strictEqual(data.tresName, 'tres');
+						});
+					}),
+
 				// TODO: there are more of the i18n tests...
 				'i18n': {
 					'i18n': (function () {
@@ -801,7 +881,7 @@ define([
 								//Allow locale to be set via query args.
 								var locale = null;
 								var query = this.location.href.split('#')[0].split('?')[1];
-								var match = query && query.match(/locale=([\w-]+)/);
+								var match = query && query.split('&')[0].match(/locale=([\w-]+)/);
 								if (match) {
 									locale = match[1];
 								}
@@ -835,11 +915,11 @@ define([
 											green: {actual: colors.green, expected: green}
 										});
 									});
-								}).then(function (data) {
-									assert.strictEqual(data.red.actual, data.red.expected);
-									assert.strictEqual(data.blue.actual, data.blue.expected);
-									assert.strictEqual(data.green.actual, data.green.expected);
 								});
+							}).then(function (data) {
+								assert.strictEqual(data.red.actual, data.red.expected);
+								assert.strictEqual(data.blue.actual, data.blue.expected);
+								assert.strictEqual(data.green.actual, data.green.expected);
 							});
 						}
 
@@ -851,7 +931,7 @@ define([
 						};
 					})(),
 
-					'common': (function () {
+					common: (function () {
 						function commonTest(command) {
 							return command.executeAsync(function (callback) {
 								//Allow locale to be set via query args.
@@ -880,7 +960,7 @@ define([
 									require([ 'commonA', 'commonB' ], function (commonA, commonB) {
 										callback({
 											commonA: {actual: commonA, expected: red},
-											commonB: {actual: commonB, expected: blue},
+											commonB: {actual: commonB, expected: blue}
 										});
 									});
 								});
@@ -891,13 +971,13 @@ define([
 						}
 
 						return {
-							'base': createSyncAsyncTests.call(this, './loader/requirejs/i18n/i18n.html', commonTest),
-							'locale': createSyncAsyncTests.call(this, './loader/requirejs/i18n/i18n.html?locale=en-us-surfer', commonTest)
+							base: createSyncAsyncTests.call(this, './loader/requirejs/i18n/i18n.html', commonTest),
+							locale: createSyncAsyncTests.call(this, './loader/requirejs/i18n/i18n.html?locale=en-us-surfer', commonTest)
 						};
 					})()
 				},
 
-				'paths': createSyncAsyncTests.call(this, './loader/requirejs/paths/paths.html', function (command) {
+				paths: createSyncAsyncTests.call(this, './loader/requirejs/paths/paths.html', function (command) {
 					return command.executeAsync(function (callback) {
 						var scriptCounter = 0;
 						var self = this;
@@ -947,10 +1027,10 @@ define([
 					});
 				}),
 
-				'relative': createSyncAsyncTests.call(this, './loader/requirejs/relative/relative.html', function (command) {
+				relative: createSyncAsyncTests.call(this, './loader/requirejs/relative/relative.html', function (command) {
 					return command.executeAsync(function (callback) {
 						// alias dojo's text module to text!
-						window.define('text', [ 'dojo/text' ], function (text) {
+						define('text', [ 'dojo/text' ], function (text) {
 							return text;
 						});
 
@@ -973,431 +1053,527 @@ define([
 						assert.strictEqual(data.threeName, 'three');
 						assert.strictEqual(data.message, 'hello world');
 					});
-				})
+				}),
 
-//				'text': (function () {
-//					function textTest(context, useAlias) {
-//						var require = context.require;
-//						var define = context.define;
-//						var dfd = createDeferred();
-//
-//						if (useAlias) {
-//							// alias dojo's text module to text!
-//							require({ aliases: [ [ 'text', 'testing/text' ] ] });
-//						}
-//						else {
-//							define('text', [ 'testing/text' ], function (text) { return text; });
-//						}
-//
-//						require({
-//							baseUrl: './',
-//							paths: {
-//								text: '../../text'
-//							}
-//						}, [
-//							'widget',
-//							'local',
-//							'text!resources/sample.html!strip'
-//						],
-//						dfd.callback(function (widget, local, sampleText) {
-//							function check(expected, actual) {
-//								assert.strictEqual(actual.replace(/\r|\n/g, ''), expected);
-//							}
-//
-//							check('<span>Hello World!</span>', sampleText);
-//							check('<div data-type="widget"><h1>This is a widget!</h1><p>I am in a widget</p></div>', widget.template);
-//							check('subwidget', widget.subWidgetName);
-//							check('<div data-type="subwidget"><h1>This is a subwidget</h1></div>', widget.subWidgetTemplate);
-//							check('<span>This! is template2</span>', widget.subWidgetTemplate2);
-//							check('<h1>Local</h1>', local.localHtml);
-//						}));
-//
-//						return dfd.promise;
-//					}
-//
-//					return {
-//						alias: createSyncAsyncTests('./loader/requirejs/text/text.html', function () {
-//							return textTest(this, true);
-//						}),
-//
-//						'non-alias': createSyncAsyncTests('./loader/requirejs/text/text.html', function () {
-//							return textTest(this);
-//						})
-//					};
-//				})(),
-//
-//				'text only': createSyncAsyncTests('./loader/requirejs/text/textOnly.html', function () {
-//					var dfd = createDeferred();
-//
-//					// alias dojo's text module to text!
-//					define('text', [ 'testing/text' ], function (text) { return text; });
-//
-//					require({
-//						baseUrl: './',
-//						paths: {
-//							text: '../../text'
-//						}
-//					}, [ 'text!resources/sample.html!strip'], dfd.callback(function (sampleText) {
-//						assert.strictEqual(sampleText, '<span>Hello World!</span>');
-//					}));
-//
-//					return dfd.promise;
-//				}),
-//
-//				'exports': createTest('./loader/requirejs/exports/exports.html', function () {
-//					var dfd = createDeferred();
-//
-//					try {
-//						require({
-//							baseUrl: require.has('host-browser') ? './' : './exports/'
-//						}, [
-//							'vanilla',
-//							'funcSet',
-//							'assign',
-//							'assign2',
-//							'usethis',
-//							'implicitModule',
-//							'simpleReturn'
-//						], dfd.callback(function(vanilla, funcSet, assign, assign2, usethis, implicitModule, simpleReturn) {
-//							assert.strictEqual(vanilla.name, 'vanilla');
-//							assert.strictEqual(funcSet, 'funcSet');
-//							assert.strictEqual(assign, 'assign');
-//							assert.strictEqual(assign2, 'assign2');
-//							//TODO: not implemented in dojo assert.strictEqual(usethis.name, 'usethis');
-//							assert.strictEqual(implicitModule(), 'implicitModule');
-//							assert.strictEqual(simpleReturn(), 'simpleReturn');
-//						}));
-//					} catch (e) {
-//						console.error(e);
-//					}
-//
-//					return dfd.promise;
-//				})
+				text: (function () {
+					function textTest(command, useAlias) {
+						return command.executeAsync(function (useAlias, callback) {
+							if (useAlias) {
+								// alias dojo's text module to text!
+								require({ aliases: [
+									[ 'text', 'dojo/text' ]
+								] });
+							}
+							else {
+								define('text', [ 'dojo/text' ], function (text) {
+									return text;
+								});
+							}
+
+							require({
+									baseUrl: './',
+									paths: {
+										text: '../../text'
+									}
+								}, [
+									'widget',
+									'local',
+									'text!resources/sample.html!strip'
+								],
+								function (widget, local, sampleText) {
+									var results = [];
+
+									function makeResults(expected, actual) {
+										results.push({
+											actual: actual.replace(/\s{2,}|\n/g, ''),
+											expected: expected
+										});
+									}
+
+									makeResults('<span>Hello World!</span>', sampleText);
+									makeResults('<div data-type="widget"><h1>This is a widget!</h1><p>I am in a widget</p></div>', widget.template);
+									makeResults('subwidget', widget.subWidgetName);
+									makeResults('<div data-type="subwidget"><h1>This is a subwidget</h1></div>', widget.subWidgetTemplate);
+									makeResults('<span>This! is template2</span>', widget.subWidgetTemplate2);
+									makeResults('<h1>Local</h1>', local.localHtml);
+									callback(results);
+								});
+						}, [useAlias]).then(function (data) {
+							var test;
+							while ((test = data.shift())) {
+								assert.strictEqual(test.actual, test.expected);
+							}
+						});
+					}
+
+					return {
+						alias: createSyncAsyncTests.call(this, './loader/requirejs/text/text.html',
+							function (command) {
+								return textTest(command, true);
+							}),
+						'non-alias': createSyncAsyncTests('./loader/requirejs/text/text.html', textTest)
+					};
+				})(),
+
+				'text only': createSyncAsyncTests.call(this, './loader/requirejs/text/textOnly.html',
+					function (command) {
+						return command.executeAsync(function (callback) {
+							// alias dojo's text module to text!
+							define('text', [ 'dojo/text' ], function (text) {
+								return text;
+							});
+
+							require({
+								baseUrl: './',
+								paths: {
+									text: '../../text'
+								}
+							}, [ 'text!resources/sample.html!strip'], function (sampleText) {
+								callback(sampleText);
+							});
+						}).then(function (data) {
+							assert.strictEqual(data, '<span>Hello World!</span>');
+						});
+					}),
+
+				exports: function () {
+					return beginLoaderTest.call(this, './loader/requirejs/exports/exports.html', function (command) {
+						return command.executeAsync(function (callback) {
+							require({
+								baseUrl: require.has('host-browser') ? './' : './exports/'
+							}, [
+								'vanilla',
+								'funcSet',
+								'assign',
+								'assign2',
+								'usethis',
+								'implicitModule',
+								'simpleReturn'
+							], function (vanilla, funcSet, assign, assign2, usethis, implicitModule, simpleReturn) {
+								callback({
+									vanillaName: vanilla.name,
+									funcSet: funcSet,
+									assign: assign,
+									assign2: assign2,
+									implicitModule: implicitModule(),
+									simpleReturn: simpleReturn()
+								});
+							});
+						}).then(function (data) {
+							assert.strictEqual(data.vanillaName, 'vanilla');
+							assert.strictEqual(data.funcSet, 'funcSet');
+							assert.strictEqual(data.assign, 'assign');
+							assert.strictEqual(data.assign2, 'assign2');
+							assert.strictEqual(data.implicitModule, 'implicitModule');
+							assert.strictEqual(data.simpleReturn, 'simpleReturn');
+						});
+					});
+				},
+
+				uniques: createSyncAsyncTests.call(this, './loader/requirejs/uniques/uniques.html',
+					function (command) {
+						return command.executeAsync(function (callback) {
+							require({
+									baseUrl: './'
+								}, [ 'one', 'two', 'three' ],
+								function (one, two, three) {
+									callback({
+										oneName: one.name,
+										oneThreeName: one.threeName,
+										oneThreeName2: one.threeName2,
+										twoOneName: two.oneName,
+										twoOneName2: two.oneName2,
+										twoName: two.name,
+										twoThreeName: two.threeName,
+										threeName: three.name
+									});
+								});
+						}).then(function (data) {
+							assert.strictEqual(data.oneName, 'one');
+							assert.strictEqual(data.oneThreeName, 'three');
+							assert.strictEqual(data.oneThreeName2, 'three');
+							assert.strictEqual(data.twoOneName, 'one');
+							assert.strictEqual(data.twoOneName2, 'one');
+							assert.strictEqual(data.twoName, 'two');
+							assert.strictEqual(data.twoThreeName, 'three');
+							assert.strictEqual(data.threeName, 'three');
+						});
+					}),
+
+				'simple, bad base sync': function () {
+					return beginLoaderTest.call(this, './loader/requirejs/simple-badbase.html', badBaseTest);
+				}
 			};
-//
-//			function badBaseTest() {
-//				var self = this;
-//				var dfd1 = createDeferred();
-//
-//				// set the base URL
-//				require({ baseUrl: baseUrl + '/loader/requirejs/' });
-//
-//				require([ '../../functional/_base/loader/requirejs/simple', 'dimple', 'func' ], dfd1.callback(function (simple, dimple, func) {
-//					assert.strictEqual(simple.color, 'blue');
-//					assert.strictEqual(dimple.color, 'dimple-blue');
-//					assert.strictEqual(func(), 'You called a function');
-//				}));
-//
-//				//This test is only in the HTML since it uses an URL for a require
-//				//argument. It will not work well in say, the Rhino tests.
-//				var path = this.location.href.replace(/simple-badbase\.html$/, 'foo');
-//				var index = path.indexOf(':');
-//				var noProtocolPath = path.substring(index + 1, path.length).replace(/foo/, 'bar');
-//				var dfd2 = createDeferred();
-//
-//				require([ path, noProtocolPath ], dfd2.callback(function () {
-//					assert.strictEqual(self.foo.name, 'foo');
-//					assert.strictEqual(self.bar.name, 'bar');
-//				}));
-//
-//				return all([ dfd1.promise, dfd2.promise ]);
-//			}
-//
-//			if (has('ie') > 6) {
-//				tests['simple, bad base async'] = createTest('./loader/requirejs/simple-badbase.html', badBaseTest, { async: 1 });
-//			}
-//			tests['simple, bad base sync'] = createTest('./loader/requirejs/simple-badbase.html', badBaseTest, { async: 0 });
-//
-//			if (has('dojo-requirejs-api')) {
-//				tests.dataMain = createSyncAsyncTests('./loader/requirejs/dataMain.html', function (simple) {
-//					assert.strictEqual(simple.color, 'blue');
-//				}),
-//
-//				tests.depoverlap = createSyncAsyncTests('./loader/requirejs/depoverlap.html', function (uno) {
-//					//First confirm there is only one script tag for each module:
-//					var scripts = this.document.getElementsByTagName('script');
-//					var i;
-//					var counts = {};
-//					var modName;
-//					var something;
-//
-//					for (i = scripts.length - 1; i > -1; i--) {
-//						modName = scripts[i].getAttribute('data-requiremodule');
-//						if (modName) {
-//							if (!(modName in counts)) {
-//								counts[modName] = 0;
-//							}
-//							counts[modName] += 1;
-//						}
-//					}
-//
-//					//Now that we counted all the modules make sure count
-//					//is always one.
-//					for (var prop in counts){
-//						assert.strictEqual(counts[prop], 1);
-//					}
-//
-//					assert.strictEqual(uno.name, 'uno');
-//					something = uno.doSomething();
-//					assert.strictEqual(something.dosName, 'dos');
-//					assert.strictEqual(something.tresName, 'tres');
-//				});
-//			}
-//
-//			if (has('dojo-amd-factory-scan')) {
-//				tests.uniques = createSyncAsyncTests('./loader/requirejs/uniques/uniques.html', function () {
-//					var dfd = createDeferred();
-//
-//					require({
-//							baseUrl: './'
-//					}, [ '../../functional/_base/loader/requirejs/one', 'two', 'three' ], dfd.callback(function (one, two, three) {
-//						assert.strictEqual(one.name, 'one');
-//						assert.strictEqual(one.threeName, 'three');
-//						assert.strictEqual(one.threeName2, 'three');
-//						assert.strictEqual(two.oneName, 'one');
-//						assert.strictEqual(two.oneName2, 'one');
-//						assert.strictEqual(two.name, 'two');
-//						assert.strictEqual(two.threeName, 'three');
-//						assert.strictEqual(three.name, 'three');
-//					}));
-//
-//					return dfd.promise;
-//				});
-//			}
+
+			if (!hasIE || hasIE > 6) {
+				tests['simple, bad base async'] = function () {
+					return beginLoaderTest.call(this, './loader/requirejs/simple-badbase.html?async', badBaseTest);
+				};
+			}
 
 			return tests;
-		})()
+		})(),
 
-//		'config/test': createTest('./loader/config/test.html', function () {
-//
-//			require({
-//				config: {
-//					'loader/someModule': {
-//						someConfig: 'this is the config for someModule-someConfig'
-//					},
-//					'pkgMapped/m1': {
-//						globalConfig: 'globalConfigForpkgMapped/m1',
-//						isMapped: true
-//					},
-//					'pkgMapped/m2': {
-//						globalConfig: 'globalConfigForpkgMapped/m2'
-//					}
-//				}
-//			});
-//
-//			var dfd1 = createDeferred();
-//
-//			require([
-//				'loader/someModuleConfiggedPriorToBoot',
-//				'loader/someModule'
-//			], dfd1.rejectOnError(function (someModuleConfiggedPriorToBoot, someModule) {
-//				assert.ok(objectsAreEqual(someModuleConfiggedPriorToBoot.getConfig(), {
-//					someConfig: 'this is the config for someModuleConfiggedPriorToBoot'
-//				}));
-//				assert.ok(objectsAreEqual(someModule.getConfig(), {
-//					someConfig: 'this is the config for someModule-someConfig'
-//				}));
-//				assert.ok(objectsAreEqual(someModule.m1.getConfig(), {
-//					globalConfig: 'globalConfigForpkgMapped/m1',
-//					isMapped: true,
-//					configThroughMappedRefForM1: 'configThroughMappedRefForM1'
-//				}));
-//				assert.ok(objectsAreEqual(someModule.m2.getConfig(), {
-//					globalConfig: 'globalConfigForpkgMapped/m2',
-//					configThroughMappedRefForM1: 'configThroughMappedRefForM1',
-//					config1: 'mapped-config1',
-//					config2: 'mapped-config2',
-//					config3: 'mapped-config3'
-//				}));
-//
-//				setTimeout(function () {
-//					require({
-//						config: {
-//							'loader/someModule': {
-//								someMoreConfig:
-//									'this is the config for someModule-someMoreConfig'
-//							}
-//						}
-//					});
-//
-//					require(['loader/someModule'], dfd1.callback(function (someModule) {
-//						assert.ok(objectsAreEqual(someModule.getConfig(), {
-//							someConfig: 'this is the config for someModule-someConfig',
-//							someMoreConfig: 'this is the config for someModule-someMoreConfig'
-//						}));
-//					}));
-//				}, 10);
-//			}));
-//
-//			var dfd2 = createDeferred();
-//
-//			require({
-//				config: {
-//					'pkg/m1': { globalConfig: 'globalConfigForM1' },
-//					'pkg/m2': { globalConfig: 'globalConfigForM2' }
-//				}
-//			}, [ 'pkg/m1', 'pkg/m2' ], dfd2.callback(function (m1, m2) {
-//				assert.ok(objectsAreEqual(m1.getConfig(), { globalConfig: 'globalConfigForM1' }));
-//				assert.ok(objectsAreEqual(m2.getConfig(), {
-//					globalConfig: 'globalConfigForM2',
-//					config1: 'config1',
-//					config2: 'config2',
-//					config3: 'config3'
-//				}));
-//			}));
-//
-//			return all([ dfd1.promise, dfd2.promise ]);
-//		}),
-//
-//		'mapping': createTest('./loader/mapping.html', function () {
-//			var dfd = createDeferred();
-//
-//			// simulate a built layer, this is added to dojo.js by the builder
-//			require({
-//				cache: {
-//					'my/replacement/A': function () {
-//						define([ '../A' ], function () {
-//							return { it: 'is a replacement module' };
-//						});
-//					},
-//					'my/A': function () {
-//						define([ './B' ], function () {
-//							return { it: 'is the original module' };
-//						});
-//					},
-//					'my/B': function () {
-//						define([], function () {
-//							return { it: 'is a module dependency' };
-//						});
-//					}
-//				}
-//			});
-//
-//			// consume pending cache, the following are added at the end of a built dojo.js in a closure
-//			require({ cache: {} });
-//			!require.async && require([ 'dojo' ]);
-//			require.boot && require.apply(null, require.boot);
-//
-//			// begin test:
-//			// moving modules from the pending cache to the module cache should ignore
-//			// any mapping, pathing, or alias rules
-//			var handle = require.on('error', function (e) {
-//				dfd.reject(e);
-//			});
-//
-//			dfd.promise.always(function () {
-//				handle.remove();
-//			});
-//
-//			require([ 'my/A' ], dfd.callback(function (A) {
-//				assert.equal(A.it, 'is a replacement module');
-//			}));
-//
-//			return dfd.promise;
-//		})
-	};
-//
-//	if (has('dojo-publish-privates')) {
-//		suite['config API'] = createTest('./loader/configApi.html', function () {
-//
-//			var expectedConfig1;
-//			var expectedConfig2;
-//			var called1;
-//			var called2;
-//			var savedRawConfig;
-//			var configListener1 = function (config, rawConfig) {
-//				called1 = true;
-//				savedRawConfig = rawConfig;
-//				assert.strictEqual(config, expectedConfig1);
-//			};
-//			var configListener2 = function(config, rawConfig){
-//				called2 = true;
-//				savedRawConfig = rawConfig;
-//				assert.strictEqual(config, expectedConfig2);
-//			};
-//			var configListeners = require.listenerQueues.config ||
-//				(require.listenerQueues.config = []);
-//			var listenerCount = configListeners.length;
-//			var h1 = require.on('config', configListener1);
-//			var h2 = require.on('config', configListener2);
-//
-//			assert.strictEqual(configListeners.length, listenerCount+2);
-//			assert.strictEqual(configListeners[listenerCount], configListener1);
-//			assert.strictEqual(configListeners[listenerCount+1], configListener2);
-//			expectedConfig1 = expectedConfig2 = {
-//				someFeature: 1
-//			};
-//
-//			called1 = called2 = 0;
-//			require(expectedConfig1);
-//			assert.ok(called1);
-//			assert.ok(called2);
-//
-//			h1.remove();
-//			assert.strictEqual(configListeners.length, listenerCount+1);
-//			assert.strictEqual(configListeners[listenerCount], configListener2);
-//			expectedConfig1 = expectedConfig2 = {
-//				someFeature: 0,
-//				someOtherFeature: 1
-//			};
-//
-//			called1 = called2 = 0;
-//			require(expectedConfig1);
-//			assert.strictEqual(called1, 0);
-//			assert.ok(called2);
-//			assert.strictEqual(savedRawConfig.someFeature, 0);
-//			assert.strictEqual(savedRawConfig.someOtherFeature, 1);
-//			h2.remove();
-//
-//			require({ async: 1 });
-//			assert.strictEqual(require.async, true);
-//			assert.strictEqual(require.legacyMode, false);
-//
-//			require({ async: true });
-//			assert.strictEqual(require.async, true);
-//			assert.strictEqual(require.legacyMode, false);
-//
-//			require({ async: 2 });
-//			assert.strictEqual(require.async, true);
-//			assert.strictEqual(require.legacyMode, false);
-//
-//			require({ async: 'nonsense'});
-//			assert.strictEqual(require.async, true);
-//			assert.strictEqual(require.legacyMode, false);
-//
-//			require({ async: 0 });
-//			assert.strictEqual(require.async, false);
-//			assert.strictEqual(require.legacyMode, 'sync');
-//
-//			require({ async: false });
-//			assert.strictEqual(require.async, false);
-//			assert.strictEqual(require.legacyMode, 'sync');
-//
-//			require({ async: 'sync'});
-//			assert.strictEqual(require.async, false);
-//			assert.strictEqual(require.legacyMode, 'sync');
-//
-//			require({ async: 'legacyAsync'});
-//			assert.strictEqual(require.async, false);
-//			assert.strictEqual(require.legacyMode, 'legacyAsync');
-//		});
-//
-//		suite.internals = function () {
-//			var compactPath = require.compactPath;
-//			assert.strictEqual('../../../mytests', compactPath('../../dojo/../../mytests'));
-//			assert.strictEqual('module', compactPath('module'));
-//			assert.strictEqual('a/b', compactPath('a/./b'));
-//			assert.strictEqual('b', compactPath('a/../b'));
-//			assert.strictEqual('a/b/c/d', compactPath('a/./b/./c/./d'));
-//			assert.strictEqual('d', compactPath('a/../b/../c/../d'));
-//			assert.strictEqual('a/d', compactPath('a/b/c/../../d'));
-//			assert.strictEqual('a/b/c/d', compactPath('a/b/c/././d'));
-//			assert.strictEqual('a/b', compactPath('./a/b'));
-//			assert.strictEqual('../a/b', compactPath('../a/b'));
-//			assert.strictEqual('', compactPath(''));
-//		};
-//	}
+		'config/test': function () {
+			return beginLoaderTest.call(this, './loader/config/test.html', function (command) {
+				return command.executeAsync(function (callback) {
+					require({
+						config: {
+							'loader/someModule': {
+								someConfig: 'this is the config for someModule-someConfig'
+							},
+							'pkgMapped/m1': {
+								globalConfig: 'globalConfigForpkgMapped/m1',
+								isMapped: true
+							},
+							'pkgMapped/m2': {
+								globalConfig: 'globalConfigForpkgMapped/m2'
+							}
+						}
+					});
 
-	registerSuite(suite);
+					require([
+						'loader/someModuleConfiggedPriorToBoot',
+						'loader/someModule'
+					], function (someModuleConfiggedPriorToBoot, someModule) {
+						callback({
+							someModuleConfiggedPriorToBootConfig: someModuleConfiggedPriorToBoot.getConfig(),
+							someModuleConfig: someModule.getConfig(),
+							someModuleM1Config: someModule.m1.getConfig(),
+							someModuleM2Config: someModule.m2.getConfig()
+						});
+					});
+				}).then(function (data) {
+					assert.isTrue(objectsAreEqual(data.someModuleConfiggedPriorToBootConfig, {
+						someConfig: 'this is the config for someModuleConfiggedPriorToBoot'
+					}));
+					assert.isTrue(objectsAreEqual(data.someModuleConfig, {
+						someConfig: 'this is the config for someModule-someConfig'
+					}));
+					assert.isTrue(objectsAreEqual(data.someModuleM1Config, {
+						globalConfig: 'globalConfigForpkgMapped/m1',
+						isMapped: true,
+						configThroughMappedRefForM1: 'configThroughMappedRefForM1'
+					}));
+					assert.isTrue(objectsAreEqual(data.someModuleM2Config, {
+						globalConfig: 'globalConfigForpkgMapped/m2',
+						configThroughMappedRefForM1: 'configThroughMappedRefForM1',
+						config1: 'mapped-config1',
+						config2: 'mapped-config2',
+						config3: 'mapped-config3'
+					}));
+				}).executeAsync(function (callback) {
+					require({
+						config: {
+							'loader/someModule': {
+								someMoreConfig: 'this is the config for someModule-someMoreConfig'
+							}
+						}
+					});
+
+					require(['loader/someModule'], function (someModule) {
+						callback(someModule.getConfig());
+					});
+				}).then(function (data) {
+					assert.isTrue(objectsAreEqual(data, {
+						someConfig: 'this is the config for someModule-someConfig',
+						someMoreConfig: 'this is the config for someModule-someMoreConfig'
+					}));
+				}).executeAsync(function (callback) {
+					require({
+						config: {
+							'pkg/m1': { globalConfig: 'globalConfigForM1' },
+							'pkg/m2': { globalConfig: 'globalConfigForM2' }
+						}
+					}, [ 'pkg/m1', 'pkg/m2' ], function (m1, m2) {
+						callback({
+							m1Config: m1.getConfig(),
+							m2Config: m2.getConfig()
+						});
+					});
+				}).then(function (data) {
+					assert.isTrue(objectsAreEqual(data.m1Config, {
+						globalConfig: 'globalConfigForM1'
+					}));
+					assert.isTrue(objectsAreEqual(data.m2Config, {
+						globalConfig: 'globalConfigForM2',
+						config1: 'config1',
+						config2: 'config2',
+						config3: 'config3'
+					}));
+				});
+			}, function () {
+				return this.ready;
+			});
+		},
+
+		'mapping': function () {
+			return beginLoaderTest.call(this, './loader/mapping.html', function (command) {
+				return command.executeAsync(function (callback) {
+					// simulate a built layer, this is added to dojo.js by the builder
+					require({
+						cache: {
+							'my/replacement/A': function () {
+								define([ '../A' ], function () {
+									return { it: 'is a replacement module' };
+								});
+							},
+							'my/A': function () {
+								define([ './B' ], function () {
+									return { it: 'is the original module' };
+								});
+							},
+							'my/B': function () {
+								define([], function () {
+									return { it: 'is a module dependency' };
+								});
+							}
+						}
+					});
+
+					// consume pending cache, the following are added at the end of a built dojo.js in a closure
+					require({ cache: {} });
+					!require.async && require([ 'dojo' ]);
+					require.boot && require.apply(null, require.boot);
+
+					// begin test:
+					// moving modules from the pending cache to the module cache should ignore
+					// any mapping, pathing, or alias rules
+					var handle = require.on('error', function () {
+						handle.remove();
+						callback({error: true});
+					});
+
+					require([ 'my/A' ], function (A) {
+						handle.remove();
+						callback({aIt: A.it});
+					});
+				}).then(function (data) {
+					if (data.error) {
+						assert.fail();
+					} else {
+						assert.strictEqual(data.aIt, 'is a replacement module');
+					}
+				});
+			});
+		},
+
+		'config API': function () {
+			return beginLoaderTest.call(this, './loader/configApi.html', function (command) {
+				return command.execute(function () {
+					var data = this.data = {};
+
+					var configListener1 = function (config) {
+						data.config1 = config;
+					};
+					var configListener2 = function (config, rawConfig) {
+						data.savedRawConfig2 = rawConfig;
+						data.config2 = config;
+					};
+
+					var configListeners = require.listenerQueues.config || (require.listenerQueues.config = []);
+					data.beginListenerCount = configListeners.length;
+					this.h1 = require.on('config', configListener1);
+					this.h2 = require.on('config', configListener2);
+
+					data.listenerCount = configListeners.length;
+					require({ someFeature: 1 });
+
+					return data;
+				}).then(function (data) {
+					assert.strictEqual(data.listenerCount, data.beginListenerCount + 2);
+
+					var expected = { someFeature: 1 };
+					assert.isTrue(objectsAreEqual(data.config1, expected));
+					assert.isTrue(objectsAreEqual(data.config2, expected));
+				}).execute(function () {
+					// Remove the properties while keeping the same object which is important
+					// because the listeners hold a reference to it.
+					for (var k in this.data) {
+						delete this.data[k];
+					}
+					var configListeners = require.listenerQueues.config;
+					data.beginListenerCount = configListeners.length;
+					this.h1.remove();
+					data.listenerCount = configListeners.length;
+
+					require({someFeature: 0, someOtherFeature: 1});
+					return this.data;
+				}).then(function (data) {
+					assert.strictEqual(data.listenerCount, data.beginListenerCount - 1);
+
+					var expected = {someFeature: 0, someOtherFeature: 1};
+
+					assert.isUndefined(data.config1);
+					assert.isTrue(objectsAreEqual(data.config2, expected));
+					assert.strictEqual(data.savedRawConfig2.someFeature, 0);
+					assert.strictEqual(data.savedRawConfig2.someOtherFeature, 1);
+				}).execute(function () {
+					this.h2.remove();
+
+					function grabData(i) {
+						var obj = data['test' + i] = {};
+						obj.async = require.async;
+						obj.legacyMode = require.legacyMode;
+					}
+
+					var data = {};
+					require({ async: 1 });
+					grabData(1);
+
+					require({ async: true });
+					grabData(2);
+
+					require({ async: 2 });
+					grabData(3);
+
+					require({ async: 'nonsense'});
+					grabData(4);
+
+					require({ async: 0 });
+					grabData(5);
+
+					require({ async: false });
+					grabData(6);
+
+					require({ async: 'sync'});
+					grabData(7);
+
+					require({ async: 'legacyAsync'});
+					grabData(8);
+
+					return data;
+				}).then(function (data) {
+					assert.strictEqual(data.test1.async, true);
+					assert.strictEqual(data.test1.legacyMode, false);
+
+					assert.strictEqual(data.test2.async, true);
+					assert.strictEqual(data.test2.legacyMode, false);
+
+					assert.strictEqual(data.test3.async, true);
+					assert.strictEqual(data.test3.legacyMode, false);
+
+					assert.strictEqual(data.test4.async, true);
+					assert.strictEqual(data.test4.legacyMode, false);
+
+					assert.strictEqual(data.test5.async, false);
+					assert.strictEqual(data.test5.legacyMode, 'sync');
+
+					assert.strictEqual(data.test6.async, false);
+					assert.strictEqual(data.test6.legacyMode, 'sync');
+
+					assert.strictEqual(data.test7.async, false);
+					assert.strictEqual(data.test7.legacyMode, 'sync');
+
+					assert.strictEqual(data.test8.async, false);
+					assert.strictEqual(data.test8.legacyMode, 'legacyAsync');
+				});
+			});
+		},
+
+		compactPath: function () {
+			return beginLoaderTest.call(this, './loader/configApi.html', function (command) {
+				return command.execute(function () {
+					var compactPath = require.compactPath;
+					return [
+						compactPath('../../dojo/../../mytests'),
+						compactPath('module'),
+						compactPath('a/./b'),
+						compactPath('a/../b'),
+						compactPath('a/./b/./c/./d'),
+						compactPath('a/../b/../c/../d'),
+						compactPath('a/b/c/../../d'),
+						compactPath('a/b/c/././d'),
+						compactPath('./a/b'),
+						compactPath('../a/b'),
+						compactPath('')
+					];
+				}).then(function (data) {
+					assert.strictEqual('../../../mytests', data.shift());
+					assert.strictEqual('module', data.shift());
+					assert.strictEqual('a/b', data.shift());
+					assert.strictEqual('b', data.shift());
+					assert.strictEqual('a/b/c/d', data.shift());
+					assert.strictEqual('d', data.shift());
+					assert.strictEqual('a/d', data.shift());
+					assert.strictEqual('a/b/c/d', data.shift());
+					assert.strictEqual('a/b', data.shift());
+					assert.strictEqual('../a/b', data.shift());
+					assert.strictEqual('', data.shift());
+				});
+			});
+		},
+
+		modules: function () {
+			return beginLoaderTest.call(this, './loader/modules.html', function (command) {
+				return command.executeAsync(function (callback) {
+					require([
+						'dojo',
+						'dojo/has',
+						'modules/anon',
+						'modules/wrapped',
+						'testing/tests-intern/functional/_base/loader/modules/full',
+						'modules/data',
+						'modules/factoryArity',
+						'modules/factoryArityExports',
+						'testing/tests-intern/functional/_base/loader/modules/idFactoryArity',
+						'testing/tests-intern/functional/_base/loader/modules/idFactoryArityExports'
+					], function (dojo, has, anon, wrapped) {
+						callback([
+							has('dojo-amd-factory-scan'),
+							anon.theAnswer,
+							require('modules/anon').five,
+							wrapped.five,
+							dojo.require('testing.tests-intern.functional._base.loader.modules.wrapped').five,
+							require('modules/wrapped').five,
+							require('testing/tests-intern/functional/_base/loader/modules/full').twiceTheAnswer,
+							require('modules/data').five,
+
+							require('modules/factoryArity').module.id,
+							require('modules/factoryArity').id,
+							require('modules/factoryArity').impliedDep,
+
+							require('modules/factoryArityExports').module.id,
+							require('modules/factoryArityExports').id,
+							require('modules/factoryArityExports').impliedDep,
+
+							require('testing/tests-intern/functional/_base/loader/modules/idFactoryArity').module.id,
+							require('testing/tests-intern/functional/_base/loader/modules/idFactoryArity').id,
+							require('testing/tests-intern/functional/_base/loader/modules/idFactoryArity').impliedDep,
+
+							require('testing/tests-intern/functional/_base/loader/modules/idFactoryArityExports').module.id,
+							require('testing/tests-intern/functional/_base/loader/modules/idFactoryArityExports').id,
+							require('testing/tests-intern/functional/_base/loader/modules/idFactoryArityExports').impliedDep
+						]);
+					});
+				}).then(function (data) {
+					assert.strictEqual(data.shift(), 1);
+					assert.strictEqual(data.shift(), 42);
+					assert.strictEqual(data.shift(), 5);
+					assert.strictEqual(data.shift(), 5);
+					assert.strictEqual(data.shift(), 5);
+					assert.strictEqual(data.shift(), 5);
+					assert.strictEqual(data.shift(), 84);
+					assert.strictEqual(data.shift(), 5);
+
+					assert.strictEqual(data.shift(), 'modules/factoryArity');
+					assert.strictEqual(data.shift(), 'factoryArity');
+					assert.strictEqual(data.shift(), 'impliedDep1');
+
+					assert.strictEqual(data.shift(), 'modules/factoryArityExports');
+					assert.strictEqual(data.shift(), 'factoryArityExports');
+					assert.strictEqual(data.shift(), 'impliedDep2');
+
+					assert.strictEqual(data.shift(), 'testing/tests-intern/functional/_base/loader/modules/idFactoryArity');
+					assert.strictEqual(data.shift(), 'idFactoryArity');
+					assert.strictEqual(data.shift(), 'impliedDep3');
+
+					assert.strictEqual(data.shift(), 'testing/tests-intern/functional/_base/loader/modules/idFactoryArityExports');
+					assert.strictEqual(data.shift(), 'idFactoryArityExports');
+					assert.strictEqual(data.shift(), 'impliedDep4');
+				});
+			});
+		}
+	});
 });
 

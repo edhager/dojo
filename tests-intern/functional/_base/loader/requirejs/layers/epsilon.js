@@ -1,5 +1,5 @@
-define("epsilon",
+define('epsilon',
 	{
-		name: "epsilon"
+		name: 'epsilon'
 	}
 );

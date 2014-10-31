@@ -1,7 +1,7 @@
-define("tres",
+define('tres',
 	function () {
 		return {
-			name: "tres"
+			name: 'tres'
 		};
 	}
 );

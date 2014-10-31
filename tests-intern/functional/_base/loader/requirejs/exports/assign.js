@@ -1,5 +1,5 @@
-define("assign",
-	["require", "exports", "module"],
+define('assign',
+	['require', 'exports', 'module'],
 	function (require, exports, module) {
-		module.exports = "assign";
+		module.exports = 'assign';
 	});

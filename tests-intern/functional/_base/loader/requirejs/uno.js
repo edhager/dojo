@@ -1,8 +1,8 @@
-define("uno",
-	["dos", "tres"],
+define('uno',
+	['dos', 'tres'],
 	function (dos, tres) {
 		return {
-			name: "uno",
+			name: 'uno',
 			doSomething: function () {
 				return {
 					dosName: dos.name,

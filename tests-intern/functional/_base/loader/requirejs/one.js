@@ -1,10 +1,10 @@
-define("one",
-	["require", "two"],
+define('one',
+	['require', 'two'],
 	function (require) {
 		var one = {
-			size: "large",
+			size: 'large',
 			doSomething: function () {
-				return require("two");
+				return require('two');
 			}
 		};
 

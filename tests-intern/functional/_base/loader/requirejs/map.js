@@ -1,7 +1,7 @@
-define("map",
+define('map',
 	function () {
 		return {
-			name: "map"
+			name: 'map'
 		};
 	}
 );

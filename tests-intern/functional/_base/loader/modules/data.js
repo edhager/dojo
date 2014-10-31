@@ -1,4 +1,4 @@
 define({
-	greeting: "Hello",
+	greeting: 'Hello',
 	five: 5
 });

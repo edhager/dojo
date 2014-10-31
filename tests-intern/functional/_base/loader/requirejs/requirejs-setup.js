@@ -1,8 +1,7 @@
 var testArgs = {
-	async: (location.search.match(/(\&|\?)async/) === '?async') ? 1 : 0,
+	async: (location.search.match(/(\&|\?)async/) == null) ? 0 : 1,
 	baseUrl: '.'
 };
-
 var requirejsArgs = requirejsArgs || {
 	dojoLocation: '../../../../..'
 };

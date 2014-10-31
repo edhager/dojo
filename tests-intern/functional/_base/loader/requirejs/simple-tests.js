@@ -1,16 +1,16 @@
 require({
-		baseUrl: "./"
+		baseUrl: './'
 	},
-	["require", "map", "simple", "dimple", "func", "doh"],
+	['require', 'map', 'simple', 'dimple', 'func', 'doh'],
 	function (require, map, simple, dimple, func, doh) {
 		doh.register(
-			"simple",
+			'simple',
 			[
 				function colors(t) {
-					t.is("map", map.name);
-					t.is("blue", simple.color);
-					t.is("dimple-blue", dimple.color);
-					t.is("You called a function", func());
+					t.is('map', map.name);
+					t.is('blue', simple.color);
+					t.is('dimple-blue', dimple.color);
+					t.is('You called a function', func());
 				}
 			]
 		);

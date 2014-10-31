@@ -4,6 +4,6 @@ require(
 	},
 	[ 'simple' ],
 	function (simple) {
-		parent.loaderTestDfd.resolve([ simple ]);
+		this.simple = simple;
 	}
 );
