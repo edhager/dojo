@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+	<meta charset="UTF-8">
+	<title>Browser Test 1</title>
+</head>
+<body>
+<script>
+	var dojoConfig = {
+		async: true
+	};
+</script>
+<script src="../dojo/dojo.js"></script>
+<script>
+	require([
+		'dojo/aspect',
+		'dojo/date/locale'
+	], function(aspect, locale) {
+		console.log('Date:', locale.format(new Date(), {
+			selector: 'date',
+			formateLength: 'short'
+		}));
+	});
+</script>
+</body>
+</html>

@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+	<meta charset="UTF-8">
+	<title>Web Worker Test 2</title>
+</head>
+<body>
+<script>
+
+	var myWorker = new Worker('worker2.js');
+	myWorker.onmessage = function (event) {
+		if (event.data.success) {
+			console.log('Yay!', event.data.date, Date.now() - start);
+		} else {
+			console.error('ERROR!', event.data.error);
+		}
+	};
+	var start = Date.now();
+	myWorker.postMessage({ run: true });
+</script>
+</body>
+</html>

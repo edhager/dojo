@@ -63,7 +63,7 @@
 	// The integer constant 1 is used in place of true and 0 in place of false.
 	//
 	// The "foreign-loader" has condition is defined if another loader is being used (e.g. webpack) and this code is only
-	// needed for resolving module identifiers based on the config.  In this case, only the functions require.toUrl and 
+	// needed for resolving module identifiers based on the config.  In this case, only the functions require.toUrl and
 	// require.toAbsMid are supported.  The require and define functions are not supported.
 
 	// define global
@@ -207,23 +207,57 @@
 			"dojo-guarantee-console": 0 // console is immutable in FF30+, see https://bugs.dojotoolkit.org/ticket/18100
 		});
 
-		defaultConfig.loaderPatch = {
-			injectUrl: function(url, callback){
-				// TODO:
-				//		This is not async, nor can it be in Webworkers.  It could be made better by passing
-				//		the entire require array into importScripts at.  This way the scripts are loaded in
-				//		async mode; even if the callbacks are ran in sync.  It is not a major issue as webworkers
-				//		tend to be long running where initial startup is not a major factor.
-
-				try{
-					importScripts(url);
-					callback();
-				}catch(e){
-					console.info("failed to load resource (" + url + ")");
-					console.error(e);
+		if (userConfig.webworkerBatchInjector) {
+			var injectUrls = [];
+			var injectCallbacks = [];
+			var injectPending = false;
+			defaultConfig.loaderPatch = {
+				injectUrl: function(url, callback){
+					injectUrls.push(url);
+					injectCallbacks.push(callback || function () {});
+					if (!injectPending) {
+						injectPending = true;
+						setTimeout(function () {
+							// Save the cached URLs and reset the cache to collect any URLs while
+							// the scripts are being injected.
+							var urls = injectUrls;
+							var callbacks = injectCallbacks;
+							injectUrls = [];
+							injectCallbacks = [];
+							injectPending = false;
+							try {
+								// Override define so the callback for each script can run.  If the callbacks,
+								// are saved until after all of the scripts are injected, the loader
+								// treats the encounted calls to define() as if they all came from a single module.
+								var i = 0;
+								var originalDefine = define;
+								define = function () {
+									originalDefine.apply(null, arguments);
+									callbacks[i++]();
+								};
+								importScripts.apply(null, urls);
+								define = originalDefine;
+							}catch(e){
+								console.info("failed to load resource (" + JSON.stringify(urls) + ")");
+								console.error(e);
+							}
+						}, 0);
+					}
 				}
-			}
-		};
+			};
+		} else {
+			defaultConfig.loaderPatch = {
+				injectUrl: function(url, callback){
+					try{
+						importScripts(url);
+						callback();
+					}catch(e){
+						console.info("failed to load resource (" + url + ")");
+						console.error(e);
+					}
+				}
+			};
+		}
 	}
 
 	// userConfig has tests override defaultConfig has tests; do this after the environment detection because
@@ -784,7 +818,7 @@
 				combosPending = [],
 				comboPendingTimer = null;
 		}
-		
+
 
 		// build the loader machinery iaw configuration, including has feature tests
 		var injectDependencies = function(module){
