@@ -1,7 +1,7 @@
 var dojoConfig = {
 	async: true,
 	packages: [
-		{ name: 'dojo', location: '../../../' }
+		{ name: 'dojo', location: 'https://rawgit.com/dojo/dojo/master/' }
 	],
-	cacheBust: true,
+	cacheBust: true
 };
